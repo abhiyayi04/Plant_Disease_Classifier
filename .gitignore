@@ -28,7 +28,7 @@ data/
 # =========================
 # Model artifacts
 # =========================
-artifacts/
+artifacts/models/
 *.pt
 *.pth
 *.ckpt
