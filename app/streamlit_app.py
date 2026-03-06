@@ -79,7 +79,7 @@ def main():
         if st.button("Predict"):
             with st.spinner("Running inference..."):
                 image_tensor = transform(image).unsqueeze(0)
-                image_tensor = image_tensor.to(torch.device)
+                image_tensor = image_tensor.to(device)
 
                 predictions = predict_topk(
                     model=model,
