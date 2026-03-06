@@ -1,0 +1,28 @@
+data:
+  base_dir: data/plantvillage/color
+  img_size: 224
+  batch_size: 32
+  val_split: 0.1
+  test_split: 0.1
+  seed: 42
+  num_workers: 2
+
+model:
+  name: efficientnet_b0
+  pretrained: true
+  num_classes: null
+
+training:
+  epochs_head: 2
+  epochs_ft: 5
+  lr_head: 0.001
+  lr_ft: 0.0001
+  unfreeze_blocks: 2
+
+paths:
+  class_map_path: artifacts/reports/class_to_idx.json
+  best_model_path: artifacts/models/best.pt
+  reports_dir: artifacts/reports
+
+experiment:
+  project: plant-disease-level3

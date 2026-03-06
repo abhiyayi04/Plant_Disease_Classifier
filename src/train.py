@@ -12,7 +12,12 @@ from sklearn.metrics import f1_score
 import wandb
 
 from src.data import DataConfig, build_dataloaders, seed_everything
-from src.model import build_efficientnet_b0, freeze_backbone, unfreeze_last_n_blocks, get_trainable_params
+from src.model import (
+    build_efficientnet_b0,
+    freeze_backbone,
+    unfreeze_last_n_blocks,
+    get_trainable_params,
+)
 
 
 def get_device():
@@ -75,11 +80,15 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device):
     return avg_loss, acc
 
 
-def save_checkpoint(path, model, cfg, extra=None):
+def save_checkpoint(path, model, optimizer, cfg, epoch, best_metric, metric_name="macro_f1", extra=None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     payload = {
         "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
         "config": asdict(cfg),
+        "epoch": epoch,
+        "best_metric": best_metric,
+        "metric_name": metric_name,
         "extra": extra or {},
     }
     torch.save(payload, path)
@@ -90,7 +99,8 @@ def main():
     parser.add_argument("--base_dir", type=str, default="data/plantvillage/color")
     parser.add_argument("--img_size", type=int, default=224)
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--val_split", type=float, default=0.2)
+    parser.add_argument("--val_split", type=float, default=0.1)
+    parser.add_argument("--test_split", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num_workers", type=int, default=2)
 
@@ -108,6 +118,7 @@ def main():
         img_size=args.img_size,
         batch_size=args.batch_size,
         val_split=args.val_split,
+        test_split=args.test_split,
         seed=args.seed,
         num_workers=args.num_workers,
     )
@@ -116,21 +127,34 @@ def main():
     device = get_device()
     print("device:", device)
 
-    train_loader, val_loader, class_to_idx = build_dataloaders(cfg)
+    train_loader, val_loader, _, class_to_idx = build_dataloaders(cfg)
     num_classes = len(class_to_idx)
 
-    # Save class mapping for inference
     os.makedirs("artifacts/reports", exist_ok=True)
     with open("artifacts/reports/class_to_idx.json", "w") as f:
         json.dump(class_to_idx, f, indent=2)
 
-    wandb.init(project=args.project, config={**asdict(cfg), **vars(args), "num_classes": num_classes, "device": device})
+    wandb.init(
+        project=args.project,
+        config={**asdict(cfg), **vars(args), "num_classes": num_classes, "device": device},
+    )
 
     model = build_efficientnet_b0(num_classes=num_classes, pretrained=True).to(device)
     criterion = nn.CrossEntropyLoss()
 
     best_f1 = -1.0
-    best_path = "artifacts/models/best.pt"
+    models_dir = "artifacts/models"
+    os.makedirs(models_dir, exist_ok=True)
+
+    existing_versions = [
+        int(f.split("_v")[-1].split(".pt")[0])
+        for f in os.listdir(models_dir)
+        if f.startswith("model_v") and f.endswith(".pt")
+    ]
+
+    next_version = max(existing_versions, default=0) + 1
+    best_path = os.path.join(models_dir, f"model_v{next_version}.pt")
+    global_epoch = 0
 
     # --------------------
     # Phase 1: Train head
@@ -141,23 +165,45 @@ def main():
     optimizer = Adam(get_trainable_params(model), lr=args.lr_head)
 
     for epoch in range(1, args.epochs_head + 1):
+        global_epoch += 1
+
         train_loss, train_acc = train_one_epoch(model, train_loader, optimizer, criterion, device)
         val_acc, val_f1 = evaluate(model, val_loader, device)
 
         wandb.log({
             "phase": "head",
-            "epoch": epoch,
+            "epoch": global_epoch,
+            "phase_epoch": epoch,
             "train_loss": train_loss,
             "train_acc": train_acc,
             "val_acc": val_acc,
-            "val_macro_f1": val_f1
+            "val_macro_f1": val_f1,
         })
 
-        print(f"[HEAD] epoch {epoch} | train_loss={train_loss:.4f} train_acc={train_acc:.4f} | val_acc={val_acc:.4f} val_f1={val_f1:.4f}")
+        print(
+            f"[HEAD] epoch {epoch} (global {global_epoch}) | "
+            f"train_loss={train_loss:.4f} train_acc={train_acc:.4f} | "
+            f"val_acc={val_acc:.4f} val_f1={val_f1:.4f}"
+        )
 
         if val_f1 > best_f1:
             best_f1 = val_f1
-            save_checkpoint(best_path, model, cfg, extra={"best_macro_f1": best_f1, "phase": "head"})
+            save_checkpoint(
+                path=best_path,
+                model=model,
+                optimizer=optimizer,
+                cfg=cfg,
+                epoch=global_epoch,
+                best_metric=best_f1,
+                metric_name="macro_f1",
+                extra={
+                    "phase": "head",
+                    "phase_epoch": epoch,
+                    "val_acc": val_acc,
+                    "val_macro_f1": val_f1,
+                    "num_classes": num_classes,
+                },
+            )
             print("Saved new best:", best_path)
 
     # -------------------------
@@ -169,23 +215,45 @@ def main():
     optimizer = Adam(get_trainable_params(model), lr=args.lr_ft)
 
     for epoch in range(1, args.epochs_ft + 1):
+        global_epoch += 1
+
         train_loss, train_acc = train_one_epoch(model, train_loader, optimizer, criterion, device)
         val_acc, val_f1 = evaluate(model, val_loader, device)
 
         wandb.log({
             "phase": "finetune",
-            "epoch": epoch,
+            "epoch": global_epoch,
+            "phase_epoch": epoch,
             "train_loss": train_loss,
             "train_acc": train_acc,
             "val_acc": val_acc,
-            "val_macro_f1": val_f1
+            "val_macro_f1": val_f1,
         })
 
-        print(f"[FT] epoch {epoch} | train_loss={train_loss:.4f} train_acc={train_acc:.4f} | val_acc={val_acc:.4f} val_f1={val_f1:.4f}")
+        print(
+            f"[FT] epoch {epoch} (global {global_epoch}) | "
+            f"train_loss={train_loss:.4f} train_acc={train_acc:.4f} | "
+            f"val_acc={val_acc:.4f} val_f1={val_f1:.4f}"
+        )
 
         if val_f1 > best_f1:
             best_f1 = val_f1
-            save_checkpoint(best_path, model, cfg, extra={"best_macro_f1": best_f1, "phase": "finetune"})
+            save_checkpoint(
+                path=best_path,
+                model=model,
+                optimizer=optimizer,
+                cfg=cfg,
+                epoch=global_epoch,
+                best_metric=best_f1,
+                metric_name="macro_f1",
+                extra={
+                    "phase": "finetune",
+                    "phase_epoch": epoch,
+                    "val_acc": val_acc,
+                    "val_macro_f1": val_f1,
+                    "num_classes": num_classes,
+                },
+            )
             print("Saved new best:", best_path)
 
     print("Training done. Best macro F1:", best_f1)
