@@ -31,7 +31,7 @@ def get_model_version(weights_path: Path) -> str:
 
 @st.cache_resource
 def load_artifacts():
-    weights_path = ROOT_DIR / "artifacts" / "models" / "best.pt"
+    weights_path = ROOT_DIR / "artifacts" / "models" / "model_v1.pt"
     class_map_path = ROOT_DIR / "artifacts" / "reports" / "class_to_idx.json"
 
     if not weights_path.exists():
