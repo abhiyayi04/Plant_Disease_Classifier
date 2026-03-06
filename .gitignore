@@ -1,32 +1,75 @@
+# =========================
 # Python
+# =========================
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.so
 
+# Python build files
+build/
+dist/
+*.egg-info/
+
+# =========================
 # Virtual environments
+# =========================
 .venv/
-env/
 venv/
+env/
+ENV/
 
-# Dataset
+# =========================
+# Datasets
+# =========================
 data/
 
+# =========================
 # Model artifacts
+# =========================
 artifacts/
+*.pt
+*.pth
+*.ckpt
 
+# =========================
 # Experiment tracking
+# =========================
 wandb/
+mlruns/
 
+# =========================
+# Logs
+# =========================
+logs/
+*.log
+
+# =========================
+# Jupyter
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# VSCode
+# =========================
+.vscode/
+
+# =========================
 # OS files
+# =========================
 .DS_Store
 Thumbs.db
 
-# VSCode
-.vscode/
+# =========================
+# Google Colab temp files
+# =========================
+content/
+drive/
 
-# Jupyter
-.ipynb_checkpoints/
-
-# Logs
-*.log
+# =========================
+# Temporary files
+# =========================
+*.tmp
+*.cache
+*.bak
